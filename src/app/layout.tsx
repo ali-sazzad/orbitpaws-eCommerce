@@ -23,7 +23,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="h-full">
-      <body className={`${inter.className} min-h-full bg-gradient-to-b from-slate-50 to-white text-slate-900`}>
+      <body className={`${inter.className} min-h-full bg-linear-to-b from-slate-50 to-white text-slate-900`}>
         <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4">
           <OrbitHeader />
           <main className="flex-1">{children}</main>

@@ -23,8 +23,8 @@ export function OrbitProductCard({ product, layout = "grid" }: Props) {
         <div
           className={cn(
             "relative",
-            layout === "grid" && "aspect-[4/3] w-full",
-            layout === "list" && "aspect-[4/3] w-full sm:h-full sm:w-64 sm:shrink-0"
+            layout === "grid" && "aspect-4/3 w-full",
+            layout === "list" && "aspect-4/3 w-full sm:h-full sm:w-64 sm:shrink-0"
           )}
         >
           <Image
@@ -34,7 +34,7 @@ export function OrbitProductCard({ product, layout = "grid" }: Props) {
             sizes={layout === "grid" ? "(max-width: 768px) 100vw, 33vw" : "(max-width: 768px) 100vw, 260px"}
             className="object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-black/0 to-black/0" />
+          <div className="absolute inset-0 bg-linear-to-t from-black/30 via-black/0 to-black/0" />
 
           <div className="absolute left-3 top-3 flex gap-2">
             {product.vetApproved ? (
