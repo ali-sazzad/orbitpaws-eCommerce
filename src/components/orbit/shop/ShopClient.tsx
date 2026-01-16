@@ -1,11 +1,15 @@
+// src/components/orbit/shop/ShopClient.tsx
 "use client";
 
 import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Product, PetCategory, ProductType } from "@/data/products";
 import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import { OrbitProductCard } from "@/components/orbit/OrbitProductCard";
 import { OrbitPageHeader } from "@/components/orbit/OrbitPageHeader";
 import { ShopResultsSkeleton } from "@/components/orbit/shop/ShopSkeletons";
+import type { FiltersState } from "@/components/orbit/shop/types";
+import { buildShopSearchParams, parseShopStateFromSearchParams, SortKey, ViewMode } from "@/lib/orbit/shopUrlState";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,16 +21,6 @@ import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-type SortKey = "popular" | "price-asc" | "price-desc" | "rating";
-
-type FiltersState = {
-  categories: Array<Exclude<PetCategory, "both">>; // user selects cat/dog
-  types: ProductType[];
-  price: [number, number];
-  minRating: number | null;
-  vetApprovedOnly: boolean;
-};
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -52,7 +46,11 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
 }
 
 export function ShopClient({ products }: { products: Product[] }) {
-  // Global price bounds from products
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // derive global price bounds
   const bounds = React.useMemo(() => {
     const prices = products.map((p) => p.price);
     const min = Math.floor(Math.min(...prices));
@@ -71,42 +69,102 @@ export function ShopClient({ products }: { products: Product[] }) {
     [bounds.min, bounds.max]
   );
 
-  // Persist filters
+  // localStorage (still useful if user comes without URL)
   const [filters, setFilters] = useLocalStorageState<FiltersState>("orbitpaws:filters", defaultFilters);
+  const [viewMode, setViewMode] = useLocalStorageState<ViewMode>("orbitpaws:viewMode", "grid");
 
-  // If bounds change, keep saved filters valid
+  const [query, setQuery] = React.useState("");
+  const [sort, setSort] = React.useState<SortKey>("popular");
+
+  // --- URL -> State on first load (URL wins) ---
+  const didHydrateFromUrl = React.useRef(false);
+
+  React.useEffect(() => {
+    if (didHydrateFromUrl.current) return;
+
+    const hasAnyUrlState =
+      searchParams.has("q") ||
+      searchParams.has("sort") ||
+      searchParams.has("view") ||
+      searchParams.has("c") ||
+      searchParams.has("t") ||
+      searchParams.has("p") ||
+      searchParams.has("r") ||
+      searchParams.has("v");
+
+    if (!hasAnyUrlState) {
+      didHydrateFromUrl.current = true;
+      return;
+    }
+
+    const parsed = parseShopStateFromSearchParams(searchParams, { priceMin: bounds.min, priceMax: bounds.max });
+
+    setQuery(parsed.q ?? "");
+    setSort(parsed.sort ?? "popular");
+    setViewMode(parsed.view ?? "grid");
+
+    // sanitize categories/types to allowed values
+    const allowedCats: Array<Exclude<PetCategory, "both">> = ["cat", "dog"];
+    const allowedTypes: ProductType[] = ["food", "toy", "grooming"];
+
+    setFilters({
+      categories: (parsed.filters.categories ?? []).filter((x) => allowedCats.includes(x)),
+      types: (parsed.filters.types ?? []).filter((x) => allowedTypes.includes(x)),
+      price: [
+        clamp(parsed.filters.price[0], bounds.min, bounds.max),
+        clamp(parsed.filters.price[1], bounds.min, bounds.max),
+      ],
+      minRating: parsed.filters.minRating === null ? null : parsed.filters.minRating,
+      vetApprovedOnly: !!parsed.filters.vetApprovedOnly,
+    });
+
+    didHydrateFromUrl.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bounds.min, bounds.max, searchParams]);
+
+  // keep saved filters valid if bounds change
   React.useEffect(() => {
     setFilters((prev) => ({
       ...prev,
-      price: [
-        clamp(prev.price[0], bounds.min, bounds.max),
-        clamp(prev.price[1], bounds.min, bounds.max),
-      ],
+      price: [clamp(prev.price[0], bounds.min, bounds.max), clamp(prev.price[1], bounds.min, bounds.max)],
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bounds.min, bounds.max]);
 
-  // Persist view mode
-  const [viewMode, setViewMode] = useLocalStorageState<"grid" | "list">("orbitpaws:viewMode", "grid");
+  // --- State -> URL (replace; no history spam) ---
+  const didWriteUrlOnce = React.useRef(false);
 
-  // Search + sort
-  const [query, setQuery] = React.useState("");
+  React.useEffect(() => {
+    // don’t write until hydration decision is done
+    if (!didHydrateFromUrl.current) return;
+
+    const sp = buildShopSearchParams({
+      q: query,
+      sort,
+      view: viewMode,
+      filters,
+      defaults: { priceMin: bounds.min, priceMax: bounds.max },
+    });
+
+    const qs = sp.toString();
+    const nextUrl = qs ? `${pathname}?${qs}` : pathname;
+
+    // Avoid constant replace if identical
+    const current = `${pathname}?${searchParams.toString()}`.replace(/\?$/, "");
+    const normalizedNext = nextUrl.replace(/\?$/, "");
+
+    if (normalizedNext === current) return;
+
+    // First write should be replace too (clean)
+    router.replace(nextUrl);
+    didWriteUrlOnce.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, query, sort, viewMode, bounds.min, bounds.max, pathname]);
+
+  // --- Debounced search + loading simulation ---
   const debouncedQuery = useDebouncedValue(query, 250);
   const normalizedQuery = debouncedQuery.trim().toLowerCase();
 
-  const [sort, setSort] = React.useState<SortKey>("popular");
-
-  // Active filter count (for badges)
-  const activeFilterCount =
-    (filters.categories.length ? 1 : 0) +
-    (filters.types.length ? 1 : 0) +
-    (filters.vetApprovedOnly ? 1 : 0) +
-    (filters.minRating !== null ? 1 : 0) +
-    (filters.price[0] !== bounds.min || filters.price[1] !== bounds.max ? 1 : 0);
-
-  const clearFilters = React.useCallback(() => setFilters(defaultFilters), [defaultFilters, setFilters]);
-
-  // Simulated loading on changes (makes UI feel real)
   const [isLoading, setIsLoading] = React.useState(false);
   const first = React.useRef(true);
 
@@ -120,11 +178,19 @@ export function ShopClient({ products }: { products: Product[] }) {
     return () => window.clearTimeout(id);
   }, [filters, sort, normalizedQuery, viewMode]);
 
-  // Results pipeline
+  const activeFilterCount =
+    (filters.categories.length ? 1 : 0) +
+    (filters.types.length ? 1 : 0) +
+    (filters.vetApprovedOnly ? 1 : 0) +
+    (filters.minRating !== null ? 1 : 0) +
+    (filters.price[0] !== bounds.min || filters.price[1] !== bounds.max ? 1 : 0);
+
+  const clearFilters = () => setFilters(defaultFilters);
+
   const results = React.useMemo(() => {
     let list = products;
 
-    // Category: selected cat/dog; product can be cat/dog/both
+    // category: cat/dog selected; product can be cat/dog/both
     if (filters.categories.length) {
       list = list.filter((p) => {
         if (p.category === "both") return true;
@@ -132,26 +198,26 @@ export function ShopClient({ products }: { products: Product[] }) {
       });
     }
 
-    // Type
+    // type
     if (filters.types.length) {
       list = list.filter((p) => filters.types.includes(p.type));
     }
 
-    // Price
+    // price range
     list = list.filter((p) => p.price >= filters.price[0] && p.price <= filters.price[1]);
 
-    // Min rating
+    // min rating (safe null handling)
     if (filters.minRating != null) {
       const min = filters.minRating;
       list = list.filter((p) => p.rating >= min);
     }
 
-    // Vet-approved
+    // vet
     if (filters.vetApprovedOnly) {
       list = list.filter((p) => p.vetApproved);
     }
 
-    // Search (name + tags)
+    // SEARCH (name + tags)
     if (normalizedQuery) {
       list = list.filter((p) => {
         const haystack = `${p.name} ${p.tags.join(" ")}`.toLowerCase();
@@ -159,7 +225,7 @@ export function ShopClient({ products }: { products: Product[] }) {
       });
     }
 
-    // Sort
+    // SORT
     list = list.slice().sort((a, b) => {
       if (sort === "popular") return b.popularity - a.popularity;
       if (sort === "rating") return b.rating - a.rating;
@@ -196,7 +262,6 @@ export function ShopClient({ products }: { products: Product[] }) {
               size="sm"
               onClick={clearFilters}
               disabled={activeFilterCount === 0}
-              aria-disabled={activeFilterCount === 0}
             >
               Clear
             </Button>
@@ -227,7 +292,7 @@ export function ShopClient({ products }: { products: Product[] }) {
             </label>
 
             <p className="text-xs text-slate-500">
-              “Both” products appear for cat or dog.
+              Products marked “both” match cat or dog.
             </p>
           </div>
 
@@ -267,9 +332,7 @@ export function ShopClient({ products }: { products: Product[] }) {
             />
 
             {!compact ? (
-              <p className="text-xs text-slate-500">
-                Narrow down when comparing; keep wide for discovery.
-              </p>
+              <p className="text-xs text-slate-500">Narrow ranges when comparing similar products.</p>
             ) : null}
           </div>
 
@@ -317,7 +380,7 @@ export function ShopClient({ products }: { products: Product[] }) {
     <div className="space-y-10 pb-14 pt-6">
       <OrbitPageHeader
         title="Shop"
-        subtitle="Browse vet-approved pet essentials with filters, sorting, and premium UX transitions."
+        subtitle="Filters + sorting + shareable URLs — built like a real storefront."
         right={
           <div className="flex items-center gap-2">
             {/* Mobile filters */}
@@ -344,7 +407,7 @@ export function ShopClient({ products }: { products: Product[] }) {
             <ToggleGroup
               type="single"
               value={viewMode}
-              onValueChange={(v) => v && setViewMode(v as "grid" | "list")}
+              onValueChange={(v) => v && setViewMode(v as ViewMode)}
               aria-label="View mode"
             >
               <ToggleGroupItem value="grid" aria-label="Grid view">
@@ -359,12 +422,10 @@ export function ShopClient({ products }: { products: Product[] }) {
       />
 
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-        {/* Desktop sidebar */}
         <aside className="hidden lg:block">
           <FiltersPanel />
         </aside>
 
-        {/* Main */}
         <main className="space-y-6">
           {/* Toolbar */}
           <Card className="rounded-2xl border-slate-200/70">
@@ -404,27 +465,12 @@ export function ShopClient({ products }: { products: Product[] }) {
           {(activeFilterCount > 0 || query.trim()) && (
             <div className="flex flex-wrap items-center gap-2">
               {query.trim() ? <Badge variant="secondary">Search: “{query.trim()}”</Badge> : null}
-
-              {filters.categories.length ? (
-                <Badge variant="secondary">Category: {filters.categories.join(", ")}</Badge>
-              ) : null}
-
-              {filters.types.length ? (
-                <Badge variant="secondary">Type: {filters.types.join(", ")}</Badge>
-              ) : null}
-
-              {filters.vetApprovedOnly ? (
-                <Badge className="bg-slate-900 text-white">Vet-approved only</Badge>
-              ) : null}
-
-              {filters.minRating !== null ? (
-                <Badge variant="secondary">Rating: {filters.minRating}+</Badge>
-              ) : null}
-
+              {filters.categories.length ? <Badge variant="secondary">Category: {filters.categories.join(", ")}</Badge> : null}
+              {filters.types.length ? <Badge variant="secondary">Type: {filters.types.join(", ")}</Badge> : null}
+              {filters.vetApprovedOnly ? <Badge className="bg-slate-900 text-white">Vet-approved only</Badge> : null}
+              {filters.minRating !== null ? <Badge variant="secondary">Rating: {filters.minRating}+</Badge> : null}
               {filters.price[0] !== bounds.min || filters.price[1] !== bounds.max ? (
-                <Badge variant="secondary">
-                  Price: {formatMoney(filters.price[0])}–{formatMoney(filters.price[1])}
-                </Badge>
+                <Badge variant="secondary">Price: {formatMoney(filters.price[0])}–{formatMoney(filters.price[1])}</Badge>
               ) : null}
 
               <Button
@@ -440,17 +486,16 @@ export function ShopClient({ products }: { products: Product[] }) {
             </div>
           )}
 
-          {/* Results header */}
+          {/* Results */}
           <div className="flex items-end justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold">Results</h2>
               <p className="text-sm text-slate-600">
-                {isLoading ? "Updating…" : `${results.length} item${results.length === 1 ? "" : "s"} found.`}
+                {results.length} item{results.length === 1 ? "" : "s"} found.
               </p>
             </div>
           </div>
 
-          {/* Results body */}
           {isLoading ? (
             <ShopResultsSkeleton layout={viewMode} count={9} />
           ) : results.length === 0 ? (
@@ -458,7 +503,7 @@ export function ShopClient({ products }: { products: Product[] }) {
               <CardContent className="space-y-2 p-8 text-center">
                 <p className="text-sm font-semibold">No results</p>
                 <p className="text-sm text-slate-600">
-                  Try widening filters or searching “vet”, “omega”, or “shampoo”.
+                  Try widening filters or searching for “vet”, “omega”, or “shampoo”.
                 </p>
                 <div className="pt-2">
                   <Button
