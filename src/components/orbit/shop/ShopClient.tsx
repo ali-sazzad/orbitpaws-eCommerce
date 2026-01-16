@@ -1,4 +1,3 @@
-// src/components/orbit/shop/ShopClient.tsx
 "use client";
 
 import * as React from "react";
@@ -6,6 +5,8 @@ import { Product, PetCategory, ProductType } from "@/data/products";
 import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import { OrbitProductCard } from "@/components/orbit/OrbitProductCard";
 import { OrbitPageHeader } from "@/components/orbit/OrbitPageHeader";
+import { ShopResultsSkeleton } from "@/components/orbit/shop/ShopSkeletons";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,21 +16,15 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type SortKey = "popular" | "price-asc" | "price-desc" | "rating";
 
 type FiltersState = {
   categories: Array<Exclude<PetCategory, "both">>; // user selects cat/dog
   types: ProductType[];
-  price: [number, number]; // min..max
-  minRating: number | null; // null = any
+  price: [number, number];
+  minRating: number | null;
   vetApprovedOnly: boolean;
 };
 
@@ -45,8 +40,19 @@ function formatMoney(n: number) {
   return `$${n.toFixed(0)}`;
 }
 
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debounced, setDebounced] = React.useState(value);
+
+  React.useEffect(() => {
+    const id = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(id);
+  }, [value, delayMs]);
+
+  return debounced;
+}
+
 export function ShopClient({ products }: { products: Product[] }) {
-  // derive global price bounds (from product base price)
+  // Global price bounds from products
   const bounds = React.useMemo(() => {
     const prices = products.map((p) => p.price);
     const min = Math.floor(Math.min(...prices));
@@ -66,12 +72,9 @@ export function ShopClient({ products }: { products: Product[] }) {
   );
 
   // Persist filters
-  const [filters, setFilters] = useLocalStorageState<FiltersState>(
-    "orbitpaws:filters",
-    defaultFilters
-  );
+  const [filters, setFilters] = useLocalStorageState<FiltersState>("orbitpaws:filters", defaultFilters);
 
-  // If product bounds change (rare), keep saved filters valid
+  // If bounds change, keep saved filters valid
   React.useEffect(() => {
     setFilters((prev) => ({
       ...prev,
@@ -84,57 +87,71 @@ export function ShopClient({ products }: { products: Product[] }) {
   }, [bounds.min, bounds.max]);
 
   // Persist view mode
-  const [viewMode, setViewMode] = useLocalStorageState<"grid" | "list">(
-    "orbitpaws:viewMode",
-    "grid"
-  );
+  const [viewMode, setViewMode] = useLocalStorageState<"grid" | "list">("orbitpaws:viewMode", "grid");
 
-  // Search + sort (not persisted)
+  // Search + sort
   const [query, setQuery] = React.useState("");
+  const debouncedQuery = useDebouncedValue(query, 250);
+  const normalizedQuery = debouncedQuery.trim().toLowerCase();
+
   const [sort, setSort] = React.useState<SortKey>("popular");
 
-  const normalizedQuery = query.trim().toLowerCase();
-
+  // Active filter count (for badges)
   const activeFilterCount =
     (filters.categories.length ? 1 : 0) +
     (filters.types.length ? 1 : 0) +
     (filters.vetApprovedOnly ? 1 : 0) +
     (filters.minRating !== null ? 1 : 0) +
-    // price active only if user changed from default range
     (filters.price[0] !== bounds.min || filters.price[1] !== bounds.max ? 1 : 0);
 
-  const clearFilters = () => setFilters(defaultFilters);
+  const clearFilters = React.useCallback(() => setFilters(defaultFilters), [defaultFilters, setFilters]);
 
+  // Simulated loading on changes (makes UI feel real)
+  const [isLoading, setIsLoading] = React.useState(false);
+  const first = React.useRef(true);
+
+  React.useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    setIsLoading(true);
+    const id = window.setTimeout(() => setIsLoading(false), 350);
+    return () => window.clearTimeout(id);
+  }, [filters, sort, normalizedQuery, viewMode]);
+
+  // Results pipeline
   const results = React.useMemo(() => {
     let list = products;
 
-    // FILTERS
-    // category: user selects cat/dog, product can be cat/dog/both
+    // Category: selected cat/dog; product can be cat/dog/both
     if (filters.categories.length) {
       list = list.filter((p) => {
-        if (p.category === "both") return true; // both matches any selected
+        if (p.category === "both") return true;
         return filters.categories.includes(p.category);
       });
     }
 
-    // type
+    // Type
     if (filters.types.length) {
       list = list.filter((p) => filters.types.includes(p.type));
     }
 
-    // min rating
-if (filters.minRating != null) {
-  const min = filters.minRating; // now TS knows it's a number
-  list = list.filter((p) => p.rating >= min);
-}
+    // Price
+    list = list.filter((p) => p.price >= filters.price[0] && p.price <= filters.price[1]);
 
+    // Min rating
+    if (filters.minRating != null) {
+      const min = filters.minRating;
+      list = list.filter((p) => p.rating >= min);
+    }
 
-    // vet-approved
+    // Vet-approved
     if (filters.vetApprovedOnly) {
       list = list.filter((p) => p.vetApproved);
     }
 
-    // SEARCH (name + tags)
+    // Search (name + tags)
     if (normalizedQuery) {
       list = list.filter((p) => {
         const haystack = `${p.name} ${p.tags.join(" ")}`.toLowerCase();
@@ -142,7 +159,7 @@ if (filters.minRating != null) {
       });
     }
 
-    // SORT
+    // Sort
     list = list.slice().sort((a, b) => {
       if (sort === "popular") return b.popularity - a.popularity;
       if (sort === "rating") return b.rating - a.rating;
@@ -155,9 +172,7 @@ if (filters.minRating != null) {
   }, [products, filters, normalizedQuery, sort]);
 
   const gridClass =
-    viewMode === "grid"
-      ? "grid gap-5 sm:grid-cols-2 lg:grid-cols-3"
-      : "grid gap-4";
+    viewMode === "grid" ? "grid gap-5 sm:grid-cols-2 lg:grid-cols-3" : "grid gap-4";
 
   function FiltersPanel({ compact }: { compact?: boolean }) {
     return (
@@ -165,9 +180,14 @@ if (filters.minRating != null) {
         <CardContent className="space-y-6 p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
-              <p className="text-sm font-semibold">Filters</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold">Filters</p>
+                {activeFilterCount > 0 ? (
+                  <Badge className="bg-slate-900 text-white">{activeFilterCount}</Badge>
+                ) : null}
+              </div>
               <p className="text-xs text-slate-600">
-                Vet-approved essentials with clean, realistic controls.
+                Category, type, price, rating, vet-approved.
               </p>
             </div>
 
@@ -207,7 +227,7 @@ if (filters.minRating != null) {
             </label>
 
             <p className="text-xs text-slate-500">
-              Note: products marked “both” will still appear for cat or dog.
+              “Both” products appear for cat or dog.
             </p>
           </div>
 
@@ -246,11 +266,11 @@ if (filters.minRating != null) {
               aria-label="Price range"
             />
 
-            {!compact && (
+            {!compact ? (
               <p className="text-xs text-slate-500">
-                Keep ranges wide for better discovery; narrow down when comparing.
+                Narrow down when comparing; keep wide for discovery.
               </p>
-            )}
+            ) : null}
           </div>
 
           {/* Rating */}
@@ -282,7 +302,9 @@ if (filters.minRating != null) {
             </div>
             <Switch
               checked={filters.vetApprovedOnly}
-              onCheckedChange={(checked) => setFilters((prev) => ({ ...prev, vetApprovedOnly: checked }))}
+              onCheckedChange={(checked) =>
+                setFilters((prev) => ({ ...prev, vetApprovedOnly: checked }))
+              }
               aria-label="Vet-approved only"
             />
           </div>
@@ -295,7 +317,7 @@ if (filters.minRating != null) {
     <div className="space-y-10 pb-14 pt-6">
       <OrbitPageHeader
         title="Shop"
-        subtitle="Browse vet-approved pet essentials with filters, sorting, and clean microcopy."
+        subtitle="Browse vet-approved pet essentials with filters, sorting, and premium UX transitions."
         right={
           <div className="flex items-center gap-2">
             {/* Mobile filters */}
@@ -342,7 +364,7 @@ if (filters.minRating != null) {
           <FiltersPanel />
         </aside>
 
-        {/* Main content */}
+        {/* Main */}
         <main className="space-y-6">
           {/* Toolbar */}
           <Card className="rounded-2xl border-slate-200/70">
@@ -364,7 +386,7 @@ if (filters.minRating != null) {
 
               <div className="flex items-center gap-2">
                 <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-                  <SelectTrigger className="h-10 w-47.5">
+                  <SelectTrigger className="h-10 w-[190px]">
                     <SelectValue placeholder="Sort" />
                   </SelectTrigger>
                   <SelectContent>
@@ -378,12 +400,10 @@ if (filters.minRating != null) {
             </CardContent>
           </Card>
 
-          {/* Active filter chips */}
+          {/* Active chips */}
           {(activeFilterCount > 0 || query.trim()) && (
             <div className="flex flex-wrap items-center gap-2">
-              {query.trim() ? (
-                <Badge variant="secondary">Search: “{query.trim()}”</Badge>
-              ) : null}
+              {query.trim() ? <Badge variant="secondary">Search: “{query.trim()}”</Badge> : null}
 
               {filters.categories.length ? (
                 <Badge variant="secondary">Category: {filters.categories.join(", ")}</Badge>
@@ -420,26 +440,34 @@ if (filters.minRating != null) {
             </div>
           )}
 
-          {/* Results */}
+          {/* Results header */}
           <div className="flex items-end justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold">Results</h2>
               <p className="text-sm text-slate-600">
-                {results.length} item{results.length === 1 ? "" : "s"} found.
+                {isLoading ? "Updating…" : `${results.length} item${results.length === 1 ? "" : "s"} found.`}
               </p>
             </div>
           </div>
 
-          {/* Empty state */}
-          {results.length === 0 ? (
+          {/* Results body */}
+          {isLoading ? (
+            <ShopResultsSkeleton layout={viewMode} count={9} />
+          ) : results.length === 0 ? (
             <Card className="rounded-2xl border-slate-200/70">
               <CardContent className="space-y-2 p-8 text-center">
                 <p className="text-sm font-semibold">No results</p>
                 <p className="text-sm text-slate-600">
-                  Try widening your filters or searching for “vet”, “omega”, or “shampoo”.
+                  Try widening filters or searching “vet”, “omega”, or “shampoo”.
                 </p>
                 <div className="pt-2">
-                  <Button variant="outline" onClick={() => { setQuery(""); clearFilters(); }}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setQuery("");
+                      clearFilters();
+                    }}
+                  >
                     Reset
                   </Button>
                 </div>
