@@ -447,7 +447,7 @@ export function ShopClient({ products }: { products: Product[] }) {
 
               <div className="flex items-center gap-2">
                 <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-                  <SelectTrigger className="h-10 w-[190px]">
+                  <SelectTrigger className="h-10 w-47.5">
                     <SelectValue placeholder="Sort" />
                   </SelectTrigger>
                   <SelectContent>

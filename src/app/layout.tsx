@@ -8,6 +8,7 @@ import { OrbitFooter } from "@/components/orbit/OrbitFooter";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://orbitpaws.vercel.app"),
   title: {
     default: "OrbitPaws — Vet-approved pet products",
     template: "%s • OrbitPaws",
