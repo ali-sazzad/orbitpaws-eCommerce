@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { OrbitHeader } from "@/components/orbit/OrbitHeader";
 import { OrbitFooter } from "@/components/orbit/OrbitFooter";
+import { BackToTop } from "@/components/orbit/BackToTop";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -24,12 +25,15 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="h-full">
-      <body className={`${inter.className} min-h-full bg-linear-to-b from-slate-50 to-white text-slate-900`}>
+      <body className={`${inter.className} min-h-full orbit-app-bg`}>
         <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4">
           <OrbitHeader />
           <main className="flex-1">{children}</main>
           <OrbitFooter />
         </div>
+
+        {/* ✅ Back to top floating button */}
+        <BackToTop />
       </body>
     </html>
   );

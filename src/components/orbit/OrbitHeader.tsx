@@ -1,53 +1,42 @@
-// src/components/orbit/OrbitHeader.tsx
-"use client";
-
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
-
-const nav = [
-  { href: "/", label: "Home" },
-  { href: "/shop", label: "Shop" },
-  { href: "/cart", label: "Cart" },
-];
 
 export function OrbitHeader() {
-  const pathname = usePathname();
-
   return (
-    <header className="flex items-center justify-between py-5">
-      <Link href="/" className="flex items-center gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2">
-        <div className="grid size-10 place-items-center rounded-xl bg-slate-900 text-white">
-          OP
-        </div>
-        <div>
-          <p className="text-sm font-semibold leading-none">OrbitPaws</p>
-          <p className="text-xs text-slate-600">Vet-approved essentials</p>
-        </div>
-      </Link>
+    <header className="sticky mb-4 top-0 z-50 -mx-4 border-b border-white/40 bg-white/55 px-4 backdrop-blur supports-[backdrop-filter]:bg-white/45">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between">
+        <Link
+          href="/"
+          className="flex items-center gap-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="OrbitPaws home"
+        >
+          <div className="h-9 w-9 rounded-xl bg-linear-to-br from-indigo-600 via-sky-500 to-pink-500" />
+          <div className="leading-tight">
+            <p className="text-sm font-semibold">OrbitPaws</p>
+            <p className="text-xs text-muted-foreground">Vet-approved essentials</p>
+          </div>
+        </Link>
 
-      <nav className="flex items-center gap-1 text-sm">
-        {nav.map((item) => {
-          const active =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "rounded-lg px-3 py-2 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2",
-                active && "bg-slate-900 text-white hover:bg-slate-900"
-              )}
-              aria-current={active ? "page" : undefined}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
+        <nav className="flex items-center gap-1 text-sm">
+          <Link
+            href="/"
+            className="rounded-lg px-3 py-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Home
+          </Link>
+          <Link
+            href="/shop"
+            className="rounded-lg px-3 py-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Shop
+          </Link>
+          <Link
+            href="/cart"
+            className="rounded-lg px-3 py-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Cart
+          </Link>
+        </nav>
+      </div>
     </header>
   );
 }
